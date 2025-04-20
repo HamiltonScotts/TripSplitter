@@ -6,29 +6,35 @@
   <title>旅行割り勘計算機</title>
   <style>
     body { font-family: sans-serif; margin: 0; padding: 0; }
-    /* グループ名ヘッダー */
     #groupNameHeading {
       background: #f0f0f0;
+      width: 100%; padding: 0.5rem 0; margin: 0;
+      text-align: center; font-size: 1.5rem; box-sizing: border-box;
+    }
+    .container { max-width: 600px; margin: 1rem auto; padding: 0 1rem; }
+    #setup, #calculator { margin-top: 1.5rem; }
+    /* メンバー選択ボタン: 縦並びに固定 */
+    .member-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .member-btn {
       width: 100%;
-      padding: 0.5rem 0;
-      margin: 0;
+      padding: 0.5rem;
+      font-size: 1rem;
+      background: #e0e0e0;
+      border: none;
+      border-radius: 4px;
       text-align: center;
-      font-size: 1.5rem;
+      cursor: pointer;
       box-sizing: border-box;
     }
-    /* メインコンテナ */
-    .container {
-      max-width: 600px;
-      margin: 1rem auto;
-      padding: 0 1rem;
-      box-sizing: border-box;
-    }
-    /* セクション間の余白 */
-    #setup, #calculator {
-      margin-top: 1.5rem;
-    }
+    .member-btn.active { background: #007bff; color: #fff; }
     /* メニュー */
-    #menuBtn { display: none; position: fixed; top: 1rem; right: 1rem; background: none; border: none; font-size: 1.5rem; cursor: pointer; z-index: 1001; }
+    #menuBtn { display: none; position: fixed; top: 1rem; right: 1rem;
+      background: none; border: none; font-size: 1.5rem; cursor: pointer; z-index: 1001; }
     #menuPanel {
       display: none;
       position: fixed;
@@ -45,25 +51,20 @@
     #menuPanel.open { display: block; top: 0; }
     #menuPanel .menu-item { border-bottom: 1px solid #ccc; padding: 1rem 0; }
     #menuPanel .menu-item:last-child { border-bottom: none; }
-    button.menu-action {
-      background: none;
-      border: none;
-      font-size: 1.25rem;
-      text-align: center;
-      width: 100%;
-      cursor: pointer;
+    button.menu-action { background: none; border: none;
+      font-size: 1.25rem; text-align: center;
+      width: 100%; cursor: pointer;
     }
     button.menu-action:hover { color: #007bff; }
     .menu-input { margin-top: 0.5rem; }
-    .menu-input input { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; }
-    .menu-input button { margin-top: 0.5rem; width: 100%; padding: 0.5rem; font-size: 1rem; }
+    .menu-input input, .menu-input button { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; }
     .field { margin-bottom: 1rem; }
     .field label { display: block; margin-bottom: 0.5rem; }
     .field input, .field select { width: 100%; padding: 0.5rem; font-size: 1rem; box-sizing: border-box; }
-    .checkbox-group { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.5rem; }
-    .checkbox-group label { display: inline-flex; align-items: center; font-size: 1rem; }
-    .checkbox-group input[type=checkbox] { margin-right: 0.5rem; }
-    button.primary { display: block; width: 100%; padding: 0.75rem; font-size: 1rem; background-color: #007bff; color: #fff; border: none; border-radius: 4px; margin-top: 1rem; }
+    button.primary { display: block; width: 100%; padding: 0.75rem; font-size: 1rem;
+      background-color: #007bff; color: #fff; border: none; border-radius: 4px;
+      margin-top: 1rem;
+    }
     button.primary:hover { background-color: #0069d9; }
     #expensesList, #summary { margin-top: 1.5rem; font-size: 1rem; white-space: pre-wrap; }
   </style>
@@ -71,56 +72,40 @@
 <body>
   <button id="menuBtn">☰</button>
   <div id="menuPanel">
-    <div class="menu-item">
-      <button id="addMemberBtn" class="menu-action">メンバーを追加</button>
+    <div class="menu-item"><button id="addMemberBtn" class="menu-action">メンバーを追加</button>
       <div id="addMemberForm" class="menu-input" style="display:none;">
         <input type="text" id="newMemberName" placeholder="新しいメンバー名">
         <button id="addMemberSubmit">追加</button>
       </div>
     </div>
-    <div class="menu-item">
-      <button id="changeGroupNameBtn" class="menu-action">グループ名を変更</button>
+    <div class="menu-item"><button id="changeGroupNameBtn" class="menu-action">グループ名を変更</button>
       <div id="changeGroupNameForm" class="menu-input" style="display:none;">
         <input type="text" id="newGroupName" placeholder="新しいグループ名">
         <button id="changeGroupNameSubmit">変更</button>
       </div>
     </div>
-    <div class="menu-item">
-      <button id="newGroupSubmit" class="menu-action">新しいグループを追加</button>
-    </div>
+    <div class="menu-item"><button id="newGroupSubmit" class="menu-action">新しいグループを追加</button></div>
   </div>
 
   <h1 id="groupNameHeading">旅行割り勘計算機</h1>
   <div class="container">
     <div id="setup">
-      <div class="field">
-        <label for="groupNameInput">グループ名</label>
-        <input type="text" id="groupNameInput" placeholder="グループ名を入力">
-      </div>
-      <div class="field">
-        <label for="numParticipants">参加者人数</label>
-        <input type="number" id="numParticipants" min="2" placeholder="2以上の人数を入力">
-      </div>
+      <div class="field"><label for="groupNameInput">グループ名</label>
+        <input type="text" id="groupNameInput" placeholder="グループ名を入力"></div>
+      <div class="field"><label for="numParticipants">参加者人数</label>
+        <input type="number" id="numParticipants" min="2" placeholder="2以上の人数を入力"></div>
       <div class="field" id="nameFields"></div>
       <button id="initTrip" class="primary">旅行を開始</button>
     </div>
     <div id="calculator" style="display:none;">
-      <div class="field">
-        <label for="description">名目（例: 昼食代）</label>
-        <input type="text" id="description" placeholder="名目を入力してください">
-      </div>
-      <div class="field">
-        <label for="amount">金額 (¥)</label>
-        <input type="number" id="amount" placeholder="金額を入力してください">
-      </div>
-      <div class="field">
-        <label>割り勘メンバー</label>
-        <div id="memberCheckboxes" class="checkbox-group"></div>
-      </div>
-      <div class="field">
-        <label for="payerSelect">支払者</label>
-        <select id="payerSelect"></select>
-      </div>
+      <div class="field"><label for="description">名目（例: 昼食代）</label>
+        <input type="text" id="description" placeholder="名目を入力してください"></div>
+      <div class="field"><label for="amount">金額 (¥)</label>
+        <input type="number" id="amount" placeholder="金額を入力してください"></div>
+      <div class="field"><label>割り勘メンバー</label>
+        <div id="memberCheckboxes" class="member-buttons"></div></div>
+      <div class="field"><label for="payerSelect">支払者</label>
+        <select id="payerSelect"></select></div>
       <button id="addExpense" class="primary">経費を追加</button>
       <div id="expensesList"></div>
       <div id="summary"></div>
@@ -133,46 +118,36 @@
       const menuBtn = document.getElementById('menuBtn');
       const menuPanel = document.getElementById('menuPanel');
 
-      // メニュー開閉
       menuBtn.addEventListener('click', () => {
         const open = menuPanel.classList.toggle('open');
         menuBtn.textContent = open ? '✕' : '☰';
       });
 
-      // メンバー追加
       document.getElementById('addMemberBtn').addEventListener('click', () => {
         document.getElementById('addMemberForm').style.display = 'block';
         document.getElementById('changeGroupNameForm').style.display = 'none';
       });
       document.getElementById('addMemberSubmit').addEventListener('click', () => {
-        const btn = document.getElementById('addMemberSubmit');
         const name = document.getElementById('newMemberName').value.trim();
         if (!name) return;
-        names.push(name);
-        saveTrip(); refreshMembers();
-        btn.textContent = '追加完了';
-        setTimeout(() => btn.textContent = '追加', 2000);
+        names.push(name); saveTrip(); refreshMembers();
+        const btn = document.getElementById('addMemberSubmit');
+        btn.textContent = '追加完了'; setTimeout(() => btn.textContent = '追加', 2000);
         document.getElementById('newMemberName').value = '';
       });
-
-      // グループ名変更
       document.getElementById('changeGroupNameBtn').addEventListener('click', () => {
         document.getElementById('changeGroupNameForm').style.display = 'block';
         document.getElementById('addMemberForm').style.display = 'none';
       });
       document.getElementById('changeGroupNameSubmit').addEventListener('click', () => {
-        const btn = document.getElementById('changeGroupNameSubmit');
         const name = document.getElementById('newGroupName').value.trim();
         if (!name) return;
-        groupName = name;
-        document.getElementById('groupNameHeading').textContent = groupName;
+        groupName = name; document.getElementById('groupNameHeading').textContent = groupName;
         saveGroupName();
-        btn.textContent = '変更完了';
-        setTimeout(() => btn.textContent = '変更', 2000);
+        const btn = document.getElementById('changeGroupNameSubmit');
+        btn.textContent = '変更完了'; setTimeout(() => btn.textContent = '変更', 2000);
         document.getElementById('newGroupName').value = '';
       });
-
-      // 新グループ追加
       document.getElementById('newGroupSubmit').addEventListener('click', () => {
         window.open(location.origin + location.pathname, '_blank');
       });
@@ -186,7 +161,15 @@
           container.appendChild(field);
         }
       }
-
+      function refreshMembers() {
+        const memBox = document.getElementById('memberCheckboxes'); memBox.innerHTML = '';
+        names.forEach(name => {
+          const btn = document.createElement('button');
+          btn.textContent = name; btn.className = 'member-btn';
+          btn.addEventListener('click', () => btn.classList.toggle('active'));
+          memBox.appendChild(btn);
+        });
+      }
       function initTrip() {
         names = Array.from(document.querySelectorAll('.participantName')).map(i => i.value.trim()).filter(v => v);
         groupName = document.getElementById('groupNameInput').value.trim() || '旅行割り勘計算機';
@@ -195,7 +178,6 @@
         saveTrip(); saveGroupName(); document.getElementById('groupNameHeading').textContent = groupName;
         menuBtn.style.display = 'block'; menuPanel.style.display = 'block'; showCalculator();
       }
-
       function loadTrip(id) {
         names = JSON.parse(localStorage.getItem('trip-' + id + '-names') || '[]');
         expenses = JSON.parse(localStorage.getItem('trip-' + id + '-expenses') || '[]');
@@ -203,36 +185,28 @@
         document.getElementById('groupNameHeading').textContent = groupName;
         menuBtn.style.display = 'block'; menuPanel.style.display = 'block'; showCalculator();
       }
-
       function saveTrip() { localStorage.setItem('trip-' + tripId + '-names', JSON.stringify(names)); localStorage.setItem('trip-' + tripId + '-expenses', JSON.stringify(expenses)); }
       function saveGroupName() { localStorage.setItem('trip-' + tripId + '-groupName', groupName); }
-
+      function addExpense() {
+        const desc = document.getElementById('description').value.trim();
+        const amt = parseFloat(document.getElementById('amount').value);
+        const selected = Array.from(document.querySelectorAll('.member-btn.active')).map(b => b.textContent);
+        const payer = document.getElementById('payerSelect').value;
+        if (!desc || isNaN(amt) || amt <= 0 || selected.length === 0 || !payer) { alert('すべての項目を入力・選択してください'); return; }
+        expenses.push({ desc, amt, participants: selected, payer }); saveTrip(); renderExpenses(); renderSummary();
+        document.getElementById('description').value = ''; document.getElementById('amount').value = '';
+      }
+      function renderExpenses() { const list = document.getElementById('expensesList'); if (!expenses.length) { list.textContent = ''; return; } let html = '■ 追加済みの経費\n'; expenses.forEach((e,i) => html += `${i+1}. ${e.desc} - ¥${e.amt} (支払: ${e.payer}, 割り勘: ${e.participants.join(', ')})\n`); list.textContent = html; }
+      function renderSummary() { const balance = {}; names.forEach(n => balance[n] = 0); expenses.forEach(e => { const share = Math.floor(e.amt / e.participants.length); e.participants.forEach(p => { if (p === e.payer) return; balance[p] -= share; balance[e.payer] += share; }); }); const debtors = [], creditors = []; Object.entries(balance).forEach(([n, bal]) => { if (bal > 0) creditors.push({ name: n, amt: bal }); else if (bal < 0) debtors.push({ name: n, amt: -bal }); }); const lines = ['■ 精算サマリー'], ld = debtors.length, lc = creditors.length; let i = 0, j = 0; while (i < ld && j < lc) { const owe = debtors[i], recv = creditors[j]; const x = Math.min(owe.amt, recv.amt); lines.push(`${owe.name} → ${recv.name} : ¥${x}`); owe.amt -= x; recv.amt -= x; if (owe.amt === 0) i++; if (recv.amt === 0) j++; } document.getElementById('summary').textContent = lines.join('\n'); }
       function showCalculator() {
         document.getElementById('setup').style.display = 'none';
         document.getElementById('calculator').style.display = 'block';
-        refreshMembers(); renderExpenses(); renderSummary();
+        refreshMembers();
+        const payerSel = document.getElementById('payerSelect'); payerSel.innerHTML = '<option value="">--選択--</option>';
+        names.forEach(name => { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; payerSel.appendChild(opt); });
       }
-      function refreshMembers() {
-        const memBox = document.getElementById('memberCheckboxes'), payerSel = document.getElementById('payerSelect');
-        memBox.innerHTML = ''; payerSel.innerHTML = '<option value="">--選択--</option>';
-        names.forEach(name => {
-          const label = document.createElement('label'); label.innerHTML = `<input type='checkbox' value='${name}'>${name}`;
-          memBox.appendChild(label);
-          const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
-          payerSel.appendChild(opt);
-        });
-      }
-      function addExpense() {
-        const desc = document.getElementById('description').value.trim(), amt = parseFloat(document.getElementById('amount').value);
-        const checked = Array.from(document.querySelectorAll('#memberCheckboxes input[type=checkbox]:checked')).map(cb => cb.value);
-        const payer = document.getElementById('payerSelect').value;
-        if (!desc || isNaN(amt) || amt <= 0 || checked.length === 0 || !payer) { alert('すべての項目を入力・選択してください'); return; }
-        expenses.push({ desc, amt, participants: checked, payer }); saveTrip(); renderExpenses(); renderSummary(); document.getElementById('description').value = ''; document.getElementById('amount').value = ''; }
-      function renderExpenses() { const list = document.getElementById('expensesList'); if (!expenses.length) { list.textContent = ''; return; } let html = '■ 追加済みの経費\n'; expenses.forEach((e,i) => html += `${i+1}. ${e.desc} - ¥${e.amt} (支払: ${e.payer}, 割り勘: ${e.participants.join(', ')})\n`); list.textContent = html; }
-      function renderSummary() { const balance = {}; names.forEach(n => balance[n] = 0); expenses.forEach(e => { const share = Math.floor(e.amt/ e.participants.length); e.participants.forEach(p => { if (p === e.payer) return; balance[p] -= share; balance[e.payer] += share; }); }); const debtors = [], creditors = []; Object.entries(balance).forEach(([n, bal]) => { if (bal > 0) creditors.push({ name: n, amt: bal }); else if (bal < 0) debtors.push({ name: n, amt: -bal}); }); const lines = ['■ 精算サマリー'], ld = debtors.length, lc = creditors.length; let i = 0, j = 0; while (i < ld && j < lc) { const owe = debtors[i], recv = creditors[j], x = Math.min(owe.amt, recv.amt); lines.push(`${owe.name} → ${recv.name} : ¥${x}`); owe.amt -= x; recv.amt -= x; if (owe.amt === 0) i++; if (recv.amt === 0) j++; } document.getElementById('summary').textContent = lines.join('\n'); }
-      // 初期化
-      tripId = location.hash.slice(1);
-      if (tripId) loadTrip(tripId);
+      // 初期処理
+      tripId = location.hash.slice(1); if (tripId) loadTrip(tripId);
       document.getElementById('numParticipants').addEventListener('change', createNameFields);
       document.getElementById('initTrip').addEventListener('click', initTrip);
       document.getElementById('addExpense').addEventListener('click', addExpense);
