@@ -6,7 +6,6 @@
   <title>旅行割り勘計算機</title>
   <style>
     body { font-family: sans-serif; margin:0; padding:0; }
-    /* メニューボタン */
     #menuBtn { display:none; position:fixed; top:0.75rem; right:1rem; background:none; border:none; font-size:1.5rem; cursor:pointer; z-index:2001; }
     #menuPanel { display:none; position:fixed; top:-100%; left:0; width:100%; height:100vh; transition:top .3s ease; z-index:2000; overflow:auto; padding:1rem; box-sizing:border-box; background:transparent; }
     #menuPanel.open { display:block; top:0; background:#fff; box-shadow:0 2px 6px rgba(0,0,0,0.2); }
@@ -17,7 +16,6 @@
     .menu-input { margin:1rem 0 1.5rem; }
     .menu-input input, .menu-input button { width:100%; padding:.5rem; font-size:1rem; box-sizing:border-box; margin-bottom:.5rem; }
 
-    /* 共通スタイル */
     #groupNameHeading { background:#f0f0f0; padding:.5rem 0; margin:0; text-align:center; font-size:1.5rem; }
     .container { max-width:600px; margin:1rem auto; padding:0 1rem; }
     .field { margin-bottom:1rem; }
@@ -29,11 +27,10 @@
     button.primary { display:block; width:100%; padding:.75rem; font-size:1rem; background:#007bff; color:#fff; border:none; border-radius:4px; margin-top:1rem; }
     button.primary:hover { background:#0056b3; }
     #expensesList, #summary { margin-top:1.5rem; white-space:pre-wrap; }
-    /* 共有案内 */
     .share-instruction { text-align:center; padding:.5rem; background:#eef; margin-bottom:1rem; font-size:1rem; }
+    .edit-btn { margin-left:.5rem; font-size:.875rem; }
   </style>
 
-  <!-- Firebase SDK and Auth -->
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
@@ -49,156 +46,263 @@
       appId: "1:154664469902:web:10107c5674219503c110df",
       measurementId: "G-3XSDN3GH1B"
     };
+
+    // Firebase 初期化
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const auth = getAuth(app);
+
     // 匿名認証
     signInAnonymously(auth).catch(console.error);
-    onAuthStateChanged(auth, user => { if(user) console.log('Anonymous UID:', user.uid); });
+    onAuthStateChanged(auth, user => {
+      if (user) console.log('Anonymous UID:', user.uid);
+    });
 
-    // 変数定義
+    // ユーティリティ
     const generateId = () => Math.random().toString(36).substr(2,8);
-    let tripId = null, names = [], expenses = [], groupName = '';
+    let tripId = null, names = [], expenses = [], groupName = '', editingIndex = null;
 
     document.addEventListener('DOMContentLoaded', () => {
       // メニュー開閉
-      const menuBtn = document.getElementById('menuBtn');
-      const menuPanel = document.getElementById('menuPanel');
-      menuBtn.addEventListener('click', () => {
-        const open = menuPanel.classList.toggle('open');
-        menuBtn.textContent = open ? '✕' : '☰';
-      });
+      document.getElementById('menuBtn').addEventListener('click', toggleMenu);
 
       // メニュー操作
-      document.getElementById('addMemberBtn').addEventListener('click', () => {
-        document.getElementById('addMemberForm').style.display = 'block';
-        document.getElementById('changeGroupForm').style.display = 'none';
-        document.getElementById('newGroupForm').style.display = 'none';
-      });
-      document.getElementById('addMemberSubmit').addEventListener('click', async () => {
-        const input = document.getElementById('newMemberName');
-        const name = input.value.trim(); if (!name) return;
-        names.push(name);
-        await saveData();
-        refreshMembers();
-        const btn = document.getElementById('addMemberSubmit');
-        btn.textContent = '追加完了'; setTimeout(() => btn.textContent = '追加', 2000);
-        input.value = '';
-      });
-      document.getElementById('changeGroupBtn').addEventListener('click', () => {
-        document.getElementById('changeGroupForm').style.display = 'block';
-        document.getElementById('addMemberForm').style.display = 'none';
-        document.getElementById('newGroupForm').style.display = 'none';
-      });
-      document.getElementById('changeGroupSubmit').addEventListener('click', async () => {
-        const input = document.getElementById('newGroupName');
-        const name = input.value.trim(); if (!name) return;
-        groupName = name;
-        document.getElementById('groupNameHeading').textContent = groupName;
-        await saveData();
-        const btn = document.getElementById('changeGroupSubmit'); btn.textContent = '変更完了'; setTimeout(() => btn.textContent = '変更', 2000);
-        input.value = '';
-      });
-      document.getElementById('newGroupBtn').addEventListener('click', () => {
-        document.getElementById('newGroupForm').style.display = 'block';
-        document.getElementById('addMemberForm').style.display = 'none';
-        document.getElementById('changeGroupForm').style.display = 'none';
-      });
-      document.getElementById('newGroupAdd').addEventListener('click', async () => {
-        const input = document.getElementById('newGroupNameAdd');
-        const name = input.value.trim(); if (!name) return;
-        names = [];
-        expenses = [];
-        groupName = name;
-        tripId = generateId();
-        await saveData();
-        document.getElementById('menuBtn').style.display = 'block';
-        document.getElementById('setup').style.display = 'none';
-        document.getElementById('calculator').style.display = 'block';
-        document.getElementById('groupNameHeading').textContent = groupName;
-        refreshMembers(); renderExpenses(); renderSummary();
-      });
+      document.getElementById('addMemberBtn').addEventListener('click', () => showForm('addMemberForm'));
+      document.getElementById('addMemberSubmit').addEventListener('click', addMember);
+      document.getElementById('changeGroupBtn').addEventListener('click', () => showForm('changeGroupForm'));
+      document.getElementById('changeGroupSubmit').addEventListener('click', changeGroup);
+      document.getElementById('newGroupBtn').addEventListener('click', () => showForm('newGroupForm'));
+      document.getElementById('newGroupAdd').addEventListener('click', addNewGroup);
 
-      // 旅行開始・経費追加
+      // 参加者設定
       document.getElementById('numParticipants').addEventListener('change', createNameFields);
       document.getElementById('initTrip').addEventListener('click', initTrip);
-      document.getElementById('addExpense').addEventListener('click', addExpense);
+
+      // 経費登録・編集
+      document.getElementById('addExpense').addEventListener('click', addOrUpdateExpense);
 
       // 既存ロード
       const hash = location.hash.slice(1);
       if (hash) { tripId = hash; loadTrip(hash); }
     });
 
+    // メニュー関数
+    function toggleMenu() {
+      const panel = document.getElementById('menuPanel');
+      const btn = document.getElementById('menuBtn');
+      const open = panel.classList.toggle('open');
+      btn.textContent = open ? '✕' : '☰';
+    }
+
+    function showForm(formId) {
+      ['addMemberForm','changeGroupForm','newGroupForm'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+      });
+      document.getElementById(formId).style.display = 'block';
+    }
+
+    // メンバー追加
+    async function addMember() {
+      const name = document.getElementById('newMemberName').value.trim();
+      if (!name) return;
+      names.push(name);
+      await saveData();
+      refreshMembers();
+      resetButton('addMemberSubmit');
+    }
+
+    // グループ名変更
+    async function changeGroup() {
+      const name = document.getElementById('newGroupName').value.trim();
+      if (!name) return;
+      groupName = name;
+      document.getElementById('groupNameHeading').textContent = groupName;
+      await saveData();
+      resetButton('changeGroupSubmit');
+    }
+
+    // 新規グループ作成
+    async function addNewGroup() {
+      const name = document.getElementById('newGroupNameAdd').value.trim();
+      if (!name) return;
+      names = [];
+      expenses = [];
+      groupName = name;
+      tripId = generateId();
+      await saveData();
+      enterCalculator();
+    }
+
+    function resetButton(id) {
+      const btn = document.getElementById(id);
+      const original = btn.textContent;
+      btn.textContent = original === '追加' ? '追加完了' : '変更完了';
+      setTimeout(() => btn.textContent = original, 2000);
+    }
+
+    // 参加者名入力欄を生成
     function createNameFields() {
       const n = +document.getElementById('numParticipants').value || 0;
-      const container = document.getElementById('nameFields'); container.innerHTML = '';
+      const container = document.getElementById('nameFields');
+      container.innerHTML = '';
       for (let i = 0; i < n; i++) {
-        const div = document.createElement('div'); div.className = 'field';
+        const div = document.createElement('div');
+        div.className = 'field';
         div.innerHTML = `<label>参加者${i+1}</label><input class='participantName' placeholder='名前を入力'/>`;
         container.appendChild(div);
       }
     }
 
+    // 旅行開始
     async function initTrip() {
-      names = [...document.querySelectorAll('.participantName')].map(i => i.value.trim()).filter(v => v);
+      names = [...document.querySelectorAll('.participantName')]
+        .map(i => i.value.trim())
+        .filter(v => v);
       groupName = document.getElementById('groupNameInput').value.trim() || '旅行割り勘';
       if (names.length < 2) { alert('名前を2人以上入力してください'); return; }
-      tripId = generateId(); await saveData();
+      tripId = generateId();
+      await saveData();
+      enterCalculator();
+    }
+
+    function enterCalculator() {
       document.getElementById('menuBtn').style.display = 'block';
       document.getElementById('setup').style.display = 'none';
       document.getElementById('calculator').style.display = 'block';
       document.getElementById('groupNameHeading').textContent = groupName;
-      refreshMembers(); renderExpenses(); renderSummary();
+      refreshMembers();
+      renderExpenses();
+      renderSummary();
     }
 
+    // Firestoreからロード
     async function loadTrip(id) {
-      const ref = doc(db,'trips',id); const snap = await getDoc(ref);
+      const ref = doc(db, 'trips', id);
+      const snap = await getDoc(ref);
       if (!snap.exists()) return;
-      const data = snap.data(); names = data.names; expenses = data.expenses; groupName = data.groupName;
-      document.getElementById('groupNameHeading').textContent = groupName;
-      document.getElementById('menuBtn').style.display = 'block';
-      document.getElementById('setup').style.display = 'none';
-      document.getElementById('calculator').style.display = 'block';
-      refreshMembers(); renderExpenses(); renderSummary();
+      const data = snap.data();
+      names = data.names;
+      expenses = data.expenses;
+      groupName = data.groupName;
+      enterCalculator();
     }
 
+    // Firestoreに保存
     async function saveData() {
-      const ref = doc(db,'trips',tripId); await setDoc(ref,{ names, expenses, groupName }); location.hash = tripId;
+      const ref = doc(db, 'trips', tripId);
+      await setDoc(ref, { names, expenses, groupName });
+      location.hash = tripId;
     }
 
+    // 参加者ボタンを生成
     function refreshMembers() {
-      const box = document.getElementById('memberCheckboxes'); box.innerHTML = '';
+      const box = document.getElementById('memberCheckboxes');
+      box.innerHTML = '';
       names.forEach(name => {
-        const btn = document.createElement('button'); btn.className = 'member-btn'; btn.textContent = name;
-        btn.addEventListener('click', () => btn.classList.toggle('active')); box.appendChild(btn);
+        const btn = document.createElement('button');
+        btn.className = 'member-btn';
+        btn.textContent = name;
+        btn.addEventListener('click', () => btn.classList.toggle('active'));
+        box.appendChild(btn);
       });
-      const payerSel = document.getElementById('payerSelect'); payerSel.innerHTML = '<option value="">--選択--</option>';
-      names.forEach(name => { const opt = document.createElement('option'); opt.value = name; opt.textContent = name; payerSel.appendChild(opt); });
+      const payerSel = document.getElementById('payerSelect');
+      payerSel.innerHTML = '<option value="">--選択--</option>';
+      names.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        payerSel.appendChild(opt);
+      });
     }
 
-    async function addExpense() {
+    // 経費追加 or 更新
+    async function addOrUpdateExpense() {
       const desc = document.getElementById('description').value.trim();
       const amt = parseFloat(document.getElementById('amount').value);
-      const parts = [...document.querySelectorAll('.member-btn.active')].map(b => b.textContent);
+      const parts = [...document.querySelectorAll('.member-btn.active')]
+        .map(b => b.textContent);
       const payer = document.getElementById('payerSelect').value;
-      if (!desc || isNaN(amt) || amt <= 0 || parts.length === 0 || !payer) { alert('入力項目をすべて埋めてください'); return; }
-      expenses.push({ desc, amt, participants: parts, payer }); await saveData(); renderExpenses(); renderSummary();
-      document.getElementById('description').value = ''; document.getElementById('amount').value = ''; }
+      if (!desc || isNaN(amt) || amt <= 0 || parts.length === 0 || !payer) {
+        alert('入力項目をすべて埋めてください');
+        return;
+      }
+      if (editingIndex !== null) {
+        expenses[editingIndex] = { desc, amt, participants: parts, payer };
+        editingIndex = null;
+        document.getElementById('addExpense').textContent = '経費を追加';
+      } else {
+        expenses.push({ desc, amt, participants: parts, payer });
+      }
+      await saveData();
+      renderExpenses();
+      renderSummary();
+      document.getElementById('description').value = '';
+      document.getElementById('amount').value = '';
+    }
 
+    // 経費一覧表示
     function renderExpenses() {
-      const el = document.getElementById('expensesList'); if (!expenses.length) { el.textContent = ''; return; }
-      el.textContent = '■ 経費一覧\n' + expenses.map((e,i) => `${i+1}. ${e.desc} - ¥${e.amt} (支払:${e.payer}, 割り勘:${e.participants.join(',')})`).join('\n'); }
+      const el = document.getElementById('expensesList');
+      if (!expenses.length) {
+        el.textContent = '';
+        return;
+      }
+      el.innerHTML = '■ 経費一覧<br>' +
+        expenses.map((e, i) =>
+          `${i+1}. ${e.desc} - ¥${e.amt} (支払:${e.payer}, 割り勘:${e.participants.join(',')}) <button class=\"edit-btn\" data-index=\"${i}\">編集</button>`
+        ).join('<br>');
+      bindEditButtons();
+    }
 
+    function bindEditButtons() {
+      document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const i = Number(btn.dataset.index);
+          const e = expenses[i];
+          editingIndex = i;
+          document.getElementById('description').value = e.desc;
+          document.getElementById('amount').value = e.amt;
+          document.querySelectorAll('.member-btn').forEach(b =>
+            b.classList.toggle('active', e.participants.includes(b.textContent))
+          );
+          document.getElementById('payerSelect').value = e.payer;
+          document.getElementById('addExpense').textContent = '更新';
+        });
+      });
+    }
+
+    // 精算サマリー表示
     function renderSummary() {
-      const bal = {}; names.forEach(n => bal[n] = 0);
-      expenses.forEach(e => { const share = Math.floor(e.amt / e.participants.length);
-        e.participants.forEach(p => { if (p !== e.payer) { bal[p] -= share; bal[e.payer] += share; } }); });
-      const debt = Object.entries(bal).filter(([,v]) => v < 0).map(([n,v]) => ({ n, amt: -v }));
-      const cred = Object.entries(bal).filter(([,v]) => v > 0).map(([n,v]) => ({ n, amt: v }));
-      const lines = ['■ 精算サマリー']; let i=0, j=0;
-      while (i<debt.length && j<cred.length) { const d=debt[i], c=cred[j], x=Math.min(d.amt,c.amt);
-        lines.push(`${d.n} → ${c.n} : ¥${x}`); d.amt-=x; c.amt-=x; if (d.amt===0) i++; if (c.amt===0) j++; }
-      document.getElementById('summary').textContent = lines.join('\n'); }
+      const bal = {};
+      names.forEach(n => bal[n] = 0);
+      expenses.forEach(e => {
+        const share = Math.floor(e.amt / e.participants.length);
+        e.participants.forEach(p => {
+          if (p !== e.payer) {
+            bal[p] -= share;
+            bal[e.payer] += share;
+          }
+        });
+      });
+      const debt = Object.entries(bal)
+        .filter(([, v]) => v < 0)
+        .map(([n, v]) => ({ n, amt: -v }));
+      const cred = Object.entries(bal)
+        .filter(([, v]) => v > 0)
+        .map(([n, v]) => ({ n, amt: v }));
+      const lines = ['■ 精算サマリー'];
+      let i = 0, j = 0;
+      while (i < debt.length && j < cred.length) {
+        const d = debt[i], c = cred[j];
+        const x = Math.min(d.amt, c.amt);
+        lines.push(`${d.n} → ${c.n} : ¥${x}`);
+        d.amt -= x;
+        c.amt -= x;
+        if (d.amt === 0) i++;
+        if (c.amt === 0) j++;
+      }
+      document.getElementById('summary').innerHTML = lines.join('<br>');
+    }
   </script>
 </head>
 <body>
