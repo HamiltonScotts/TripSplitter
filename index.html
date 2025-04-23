@@ -125,12 +125,17 @@
     async function addNewGroup() {
       const name = document.getElementById('newGroupNameAdd').value.trim();
       if (!name) return;
-      names = [];
-      expenses = [];
-      groupName = name;
-      tripId = generateId();
-      await saveData();
-      enterCalculator();
+      // 新しいグループ初期データをFirestoreに作成
+      const newId = generateId();
+      const ref = doc(db, 'trips', newId);
+      await setDoc(ref, { names: [], expenses: [], groupName: name });
+      // 新しいタブで開く
+      const url = `${location.origin}${location.pathname}#${newId}`;
+      window.open(url, '_blank');
+      // メニューを閉じる
+      const panel = document.getElementById('menuPanel');
+      panel.classList.remove('open');
+      document.getElementById('menuBtn').textContent = '☰';
     }
 
     function resetButton(id) {
