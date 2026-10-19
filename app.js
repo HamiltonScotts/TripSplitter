@@ -13,33 +13,162 @@ async function run(action) {
 }
 function readLocal(key,fallback) {try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function writeLocal(key,value) {try{localStorage.setItem(key,JSON.stringify(value));}catch{}}
-function renderWeights(saved={}) {
- const old=Object.fromEntries([...$('weights').querySelectorAll('input')].map(i=>[i.dataset.name,i.value]));
- $('weights').replaceChildren(); if($('splitMode').value!=='weighted') return;
- for(const b of document.querySelectorAll('.member-btn.active')) {const label=document.createElement('label');label.append(document.createTextNode(b.textContent+' の比率'));const input=document.createElement('input');input.type='number';input.min='0.01';input.step='any';input.value=(Object.hasOwn(saved,b.textContent)?saved[b.textContent]:old[b.textContent])??1;input.dataset.name=b.textContent;label.append(input);$('weights').append(label);}
+function lastSplit() {
+  return expenses.length ? expenses[expenses.length-1] : null;
 }
-let cloudHistory=[];
+function selectedMembers() {
+  return [...document.querySelectorAll('.member-btn.active')].map(button=>button.textContent);
+}
+function updateSplitHint() {
+  document.querySelectorAll('.member-btn').forEach(button=>button.setAttribute('aria-pressed',button.classList.contains('active')));
+  const members=selectedMembers();
+  const inputs=[...$('weights').querySelectorAll('input')];
+  document.querySelectorAll('[data-ratio]').forEach(button=>{
+    const [left,right]=button.dataset.ratio.split(':').map(Number);
+    const ratio=$('splitMode').value==='equal'?1:inputs.length===2?Number(inputs[0].value)/Number(inputs[1].value):NaN;
+    button.setAttribute('aria-pressed',members.length===2&&Math.abs(ratio-left/right)<1e-9);
+  });
+  $('splitHint').textContent=members.length
+    ? ($('splitMode').value==='weighted'
+      ? inputs.map(input=>input.dataset.name+'：'+input.value).join(' / ')
+      : members.join('・')+'で均等に負担します。')
+    : '割り勘メンバーを選んでください。';
+}
+function renderWeights(saved={}) {
+  const old=Object.fromEntries([...$('weights').querySelectorAll('input')].map(input=>[input.dataset.name,input.value]));
+  const previous=lastSplit()?.weights||{};
+  $('weights').replaceChildren();
+  if($('splitMode').value==='weighted') for(const name of selectedMembers()) {
+    const label=document.createElement('label'); label.append(document.createTextNode(name+' の比率'));
+    const input=document.createElement('input'); input.type='number';input.min='0.01';input.step='any';
+    input.value=Object.hasOwn(saved,name)?saved[name]:Object.hasOwn(old,name)?old[name]:Object.hasOwn(previous,name)?previous[name]:1;
+    input.dataset.name=name; input.oninput=updateSplitHint;
+    label.append(input);$('weights').append(label);
+  }
+  updateSplitHint();
+}
+function restoreSplit(silent=false) {
+  const previous=lastSplit();
+  if(!previous) {if(!silent)$('splitHint').textContent='経費を保存すると、次回からそのメンバーと比率を呼び出せます。';return;}
+  document.querySelectorAll('.member-btn').forEach(button=>button.classList.toggle('active',previous.participants.includes(button.textContent)));
+  $('splitMode').value=Object.keys(previous.weights||{}).length?'weighted':'equal';
+  $('weights').replaceChildren(); renderWeights(previous.weights||{});
+}
+function applyPreset(left,right) {
+  let members=selectedMembers();
+  if(!members.length && names.length===2) {
+    document.querySelectorAll('.member-btn').forEach(button=>button.classList.add('active'));members=selectedMembers();
+  }
+  if(members.length!==2) {$('splitHint').textContent='このボタンは2人用です。割り勘メンバーを2人選んでください。';return;}
+  $('splitMode').value='weighted';
+  renderWeights(Object.fromEntries([[members[0],left],[members[1],right]]));
+}
+function swapRatio() {
+  const inputs=[...$('weights').querySelectorAll('input')];
+  if($('splitMode').value!=='weighted'||inputs.length!==2) {$('splitHint').textContent='比率の入れ替えは、傾斜をつけるメンバーが2人のときに使えます。';return;}
+  [inputs[0].value,inputs[1].value]=[inputs[1].value,inputs[0].value];updateSplitHint();
+}
+let cloudHistory=[], historyView='active', pendingDelete=null;
+function historyRows() {
+  const rows=auth?.currentUser&&!auth.currentUser.isAnonymous?cloudHistory:readLocal('recentTrips',[]);
+  return [...rows].sort((a,b)=>(b.deletedAt||b.visitedAt)-(a.deletedAt||a.visitedAt));
+}
 function renderHistory() {
- const local=readLocal('recentTrips',[]);
- const rows=auth?.currentUser&&!auth.currentUser.isAnonymous?cloudHistory:local;
- $('history').replaceChildren();
- for(const row of [...rows].sort((a,b)=>b.visitedAt-a.visitedAt)) {const button=document.createElement('button');button.textContent=row.groupName;button.onclick=()=>{if(tripId===row.id)run(()=>loadTrip(row.id));else location.hash=row.id;};$('history').append(button);}
- if(!rows.length) $('history').textContent='開いた精算がここに表示されます。';
+  $('history').replaceChildren();
+  $('activeHistoryBtn').setAttribute('aria-pressed',historyView==='active');
+  $('deletedHistoryBtn').setAttribute('aria-pressed',historyView==='deleted');
+  const search=$('historySearch').value.trim().toLocaleLowerCase();
+  const rows=historyRows().filter(row=>!!row.deletedAt===(historyView==='deleted')&&row.groupName.toLocaleLowerCase().includes(search));
+  for(const row of rows) {
+    const item=document.createElement('div');item.className='history-row';
+    const open=document.createElement('button');open.className='history-open';
+    const title=document.createElement('strong');title.textContent=row.groupName;
+    const date=document.createElement('small');date.textContent=(row.deletedAt?'削除日 ':'最後に開いた日 ')+new Date(row.deletedAt||row.visitedAt).toLocaleDateString('ja-JP');
+    open.append(title,date);open.onclick=()=>row.deletedAt?run(()=>restoreGroup(row)):openTrip(row.id);
+    const action=document.createElement('button');action.className='text-button';action.textContent=row.deletedAt?'復元':'削除';action.setAttribute('aria-label',row.groupName+(row.deletedAt?'を復元':'を削除'));
+    action.onclick=()=>row.deletedAt?run(()=>restoreGroup(row)):requestDelete(row);
+    item.append(open,action);
+    if(!row.deletedAt) {
+      const remove=document.createElement('button');remove.className='history-remove';remove.textContent='履歴から外す';remove.setAttribute('aria-label',row.groupName+'を自分の履歴から外す');remove.onclick=()=>run(()=>forgetHistory(row.id));item.append(remove);
+    }
+    $('history').append(item);
+  }
+  if(!rows.length) {const empty=document.createElement('p');empty.className='empty-state';empty.textContent=search?'一致するグループがありません。':historyView==='deleted'?'削除したグループはありません。':'まだ精算履歴がありません。​共有URLを開くと、ここから選べるようになります。';$('history').append(empty);}
+}
+async function persistHistory(row) {
+  const user=auth.currentUser;
+  writeLocal('recentTrips',[row,...readLocal('recentTrips',[]).filter(r=>r.id!==row.id)]);
+  if(user&&!user.isAnonymous) {
+    await api.setDoc(api.doc(db,'users',user.uid,'trips',row.id),row);
+    if(auth.currentUser?.uid===user.uid) cloudHistory=[row,...cloudHistory.filter(r=>r.id!==row.id)];
+  }
+  renderHistory();
 }
 async function rememberTrip() {
- const row={id:tripId,groupName,visitedAt:Date.now()}; const user=auth.currentUser;
- writeLocal('recentTrips',[row,...readLocal('recentTrips',[]).filter(r=>r.id!==tripId)]);renderHistory();
- if(user&&!user.isAnonymous) {
-  try {await api.setDoc(api.doc(db,'users',user.uid,'trips',row.id),row);if(auth.currentUser?.uid===user.uid){cloudHistory=[row,...cloudHistory.filter(r=>r.id!==row.id)];renderHistory();}}
-  catch(error){$('status').textContent='精算は読み込み・保存できましたが、アカウントの履歴を保存できませんでした。';console.error(error);}
- }
+  try {await persistHistory({id:tripId,groupName,visitedAt:Date.now(),deletedAt:0});}
+  catch(error){$('status').textContent='精算は保存できましたが、アカウントの履歴を保存できませんでした。';console.error(error);}
 }
 async function loadHistory() {
- if(!auth?.currentUser||auth.currentUser.isAnonymous){cloudHistory=[];renderHistory();return;}
- const uid=auth.currentUser.uid;
- const result=await api.getDocs(api.collection(db,'users',uid,'trips'));
- if(auth.currentUser?.uid!==uid)return;
- cloudHistory=result.docs.map(d=>d.data());renderHistory();
+  if(!auth?.currentUser||auth.currentUser.isAnonymous){cloudHistory=[];renderHistory();return;}
+  const uid=auth.currentUser.uid;
+  const result=await api.getDocs(api.collection(db,'users',uid,'trips'));
+  if(auth.currentUser?.uid!==uid)return;
+  cloudHistory=result.docs.map(doc=>doc.data());renderHistory();
+}
+async function forgetHistory(id) {
+  await ready;
+  if(auth.currentUser&&!auth.currentUser.isAnonymous) await api.deleteDoc(api.doc(db,'users',auth.currentUser.uid,'trips',id));
+  writeLocal('recentTrips',readLocal('recentTrips',[]).filter(row=>row.id!==id));
+  cloudHistory=cloudHistory.filter(row=>row.id!==id);renderHistory();
+  $('status').textContent='自分の履歴から外しました。共有URLから再び開けます。';
+}
+function closeDialog(id) {if($(id).open)$(id).close();}
+function openTrip(id) {
+  closeDialog('historyDialog');closeDialog('menuPanel');
+  run(async()=>{tripId=id;history.replaceState(null,'','#'+id);await loadTrip(id);});
+}
+function showSetup() {
+  tripId=null;loadedId=null;confirmed=null;names=[];expenses=[];editingIndex=null;
+  history.replaceState(null,'',location.pathname+location.search);
+  ['historyDialog','menuPanel','deleteDialog'].forEach(closeDialog);
+  $('calculator').style.display='none';$('setup').style.display='block';$('menuBtn').style.display='none';
+  $('groupNameHeading').textContent='気持ちよく、割り勘。';
+  $('heroDescription').innerHTML='一緒に過ごす時間を、もっとシンプルに。<br>旅も、食事も。お金のことは、ここでさっと。';
+  $('status').textContent='';updateDisabled();
+}
+function requestDelete(row) {
+  pendingDelete={id:row.id,groupName:row.groupName};
+  closeDialog('menuPanel');closeDialog('historyDialog');
+  $('deleteDescription').textContent='「'+row.groupName+'」を削除します。';$('deleteDialog').showModal();
+}
+async function deleteGroup() {
+  if(!pendingDelete)return;
+  const row={...pendingDelete}, deletedAt=Date.now();
+  await ready;
+  await api.runTransaction(db,async transaction=>{
+    const ref=api.doc(db,'trips',row.id),snapshot=await transaction.get(ref);
+    if(!snapshot.exists())throw new Error('グループが見つかりません。');
+    row.groupName=snapshot.data().groupName;
+    transaction.set(ref,{deletedAt},{merge:true});
+  });
+  // A tombstone keeps all expenses recoverable; shared links respect it too.
+  try {localStorage.removeItem('trip:'+row.id);}catch{}
+  if(tripId===row.id)showSetup();else closeDialog('deleteDialog');
+  pendingDelete=null;
+  try {await persistHistory({...row,visitedAt:Date.now(),deletedAt});}
+  catch(error){report(error);return;}
+  historyView='deleted';renderHistory();$('status').textContent='グループを削除しました。「過去の精算」の削除済みから復元できます。';
+}
+async function restoreGroup(row) {
+  await ready;
+  let data;
+  await api.runTransaction(db,async transaction=>{
+    const ref=api.doc(db,'trips',row.id),snapshot=await transaction.get(ref);
+    if(!snapshot.exists())throw new Error('グループが見つかりません。');
+    data=snapshot.data();transaction.set(ref,{deletedAt:0},{merge:true});
+  });
+  await persistHistory({id:row.id,groupName:data.groupName,visitedAt:Date.now(),deletedAt:0});
+  historyView='active';renderHistory();$('status').textContent='グループを復元しました。過去の精算から開けます。';
 }
     const firebaseConfig = {
       apiKey: "AIzaSyAHwWw5a1Ne6BEumceByfhARsP93qOigUk",
@@ -81,9 +210,7 @@ async function loadHistory() {
       document.getElementById('changeGroupSubmit').addEventListener('click', () => run(changeGroup));
       document.getElementById('newGroupBtn').addEventListener('click', () => showForm('goToSetupForm'));
       document.getElementById('goToSetupBtn').addEventListener('click', () => {
-        const url = `${location.origin}${location.pathname}`;
-        window.open(url, '_blank');
-        toggleMenu();
+        showSetup();
       });
       document.getElementById('numParticipants').addEventListener('change', createNameFields);
       document.getElementById('initTrip').addEventListener('click', () => run(initTrip));
@@ -100,12 +227,27 @@ async function loadHistory() {
       });
       $('logout').onclick=()=>run(async()=>{await ready;await authApi.signOut(auth);await authApi.signInAnonymously(auth);});
       $('splitMode').onchange=()=>renderWeights();
+      $('restoreSplit').onclick=()=>restoreSplit();
+      document.querySelectorAll('[data-ratio]').forEach(button=>button.onclick=()=>applyPreset(...button.dataset.ratio.split(':').map(Number)));
+      $('swapRatio').onclick=swapRatio;
       $('expenseOrder').onchange=renderExpenses;
+      $('historyBtn').onclick=()=>{renderHistory();$('historyDialog').showModal();};
+      $('activeHistoryBtn').onclick=()=>{historyView='active';renderHistory();};
+      $('deletedHistoryBtn').onclick=()=>{historyView='deleted';renderHistory();};
+      $('historySearch').oninput=renderHistory;
+      $('createFromHistory').onclick=showSetup;
+      document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>closeDialog(button.dataset.close));
+      $('deleteGroupBtn').onclick=()=>requestDelete({id:tripId,groupName});
+      $('confirmDelete').onclick=()=>run(deleteGroup);
+      $('cancelDelete').onclick=()=>{pendingDelete=null;closeDialog('deleteDialog');};
+      $('shareBtn').onclick=()=>run(async()=>{await navigator.clipboard.writeText(location.href);$('status').textContent='共有リンクをコピーしました。';});
+      $('cancelEdit').onclick=()=>{editingIndex=null;$('description').value='';$('amount').value='';$('addExpense').textContent='経費を追加';$('entryTitle').textContent='経費を追加';$('cancelEdit').hidden=true;restoreSplit(true);};
+      createNameFields();
       window.addEventListener('hashchange',()=>{
         if(busy){location.reload();return;}
         tripId=location.hash.slice(1)||null;
         if(tripId)run(()=>loadTrip(tripId));
-        else {loadedId=null;confirmed=null;$('calculator').style.display='none';$('setup').style.display='block';$('menuBtn').style.display='none';$('groupNameHeading').textContent='旅行割り勘計算機';}
+        else showSetup();
       });
       const hash = location.hash.slice(1);
       if (hash) { tripId = hash; run(()=>loadTrip(hash)); }
@@ -113,10 +255,7 @@ async function loadHistory() {
     }
 
     function toggleMenu() {
-      const panel = document.getElementById('menuPanel');
-      const btn = document.getElementById('menuBtn');
-      const isOpen = panel.classList.toggle('open');
-      btn.textContent = isOpen ? '✕' : '☰';
+      if($('menuPanel').open)closeDialog('menuPanel');else $('menuPanel').showModal();
     }
 
     function showForm(id) {
@@ -164,7 +303,7 @@ async function loadHistory() {
       for (let i = 0; i < n; i++) {
         const div = document.createElement('div');
         div.className = 'field';
-        div.innerHTML = `<label>参加者${i+1}</label><input class=\"participantName\" placeholder=\"名前を入力\"/>`;
+        div.innerHTML = `<label for="member-${i}">参加者 ${i+1}</label><input id="member-${i}" class="participantName" placeholder="名前を入力" maxlength="100"/>`;
         container.appendChild(div);
       }
     }
@@ -190,9 +329,12 @@ async function loadHistory() {
       document.getElementById('setup').style.display = 'none';
       document.getElementById('calculator').style.display = 'block';
       document.getElementById('groupNameHeading').textContent = groupName;
+      $('heroDescription').textContent='一緒に使ったお金を、気持ちよく。';
+      $('cancelEdit').hidden=true;$('entryTitle').textContent='経費を追加';
       editingIndex=null; $('addExpense').textContent='経費を追加';
       $('description').value=''; $('amount').value='';
-      refreshMembers(); renderWeights();
+      $('splitMode').value='equal';$('weights').replaceChildren();
+      refreshMembers(); renderWeights(); restoreSplit(true);
       renderExpenses();
       renderSummary(); updateDisabled();
     }
@@ -201,7 +343,7 @@ async function loadHistory() {
       loadedId=null; confirmed=null;
       const cached=readLocal('trip:'+id,null);
       const apply=data=>{names=data.names;expenses=data.expenses;groupName=data.groupName;enterCalculator();};
-      if(cached) apply(cached);
+      if(cached&&!cached.deletedAt) apply(cached);
       else $('calculator').style.display='none';
       $('status').textContent=cached?'保存済みの内容を表示中・最新情報を確認しています':'読み込み中…';
       await ready;
@@ -209,6 +351,12 @@ async function loadHistory() {
       if(id!==tripId) return;
       if(!snapshot.exists()) throw new Error('精算が見つかりません。URLを確認してください。');
       const data=snapshot.data();
+      if(data.deletedAt) {
+        showSetup();
+        try {localStorage.removeItem('trip:'+id);}catch{}
+        await persistHistory({id,groupName:data.groupName,visitedAt:Date.now(),deletedAt:data.deletedAt});
+        $('status').textContent='このグループは削除されています。「過去の精算」→「削除済み」から復元できます。';return;
+      }
       confirmed=structuredClone(data); loadedId=id;
       apply(data); writeLocal('trip:'+id,data);
       $('status').textContent=''; await rememberTrip();
@@ -221,10 +369,10 @@ async function loadHistory() {
       try {
         await api.runTransaction(db,async transaction=>{
           const ref=api.doc(db,'trips',id), current=await transaction.get(ref);
-          if(creating ? current.exists() : !current.exists() || !sameTrip(current.data(),baseline)) {
+          if(creating ? current.exists() : !current.exists() || !!current.data().deletedAt || !sameTrip(current.data(),baseline)) {
             throw new Error('ほかのメンバーが更新しました。ページを再読み込みしてから入力し直してください。');
           }
-          transaction.set(ref,data);
+          transaction.set(ref,data,{merge:true});
         });
       } catch(error) {
         if(baseline){names=structuredClone(baseline.names);expenses=structuredClone(baseline.expenses);groupName=baseline.groupName;$('groupNameHeading').textContent=groupName;}
@@ -242,7 +390,7 @@ async function loadHistory() {
       box.innerHTML = '';
       names.forEach(name => {
         const btn = document.createElement('button');
-        btn.className = 'member-btn';
+        btn.className = 'member-btn';btn.setAttribute('aria-pressed','false');
         btn.textContent = name;
         btn.addEventListener('click', () => {btn.classList.toggle('active');renderWeights();});
         box.appendChild(btn);
@@ -281,7 +429,7 @@ async function loadHistory() {
         expenses.push(record);
       }
       await saveData();
-      editingIndex=null; $('addExpense').textContent='経費を追加';
+      editingIndex=null; $('addExpense').textContent='経費を追加';$('entryTitle').textContent='経費を追加';$('cancelEdit').hidden=true;
       renderExpenses();
       renderSummary();
       document.getElementById('description').value = '';
@@ -290,11 +438,11 @@ async function loadHistory() {
 
     function renderExpenses() {
       const el = document.getElementById('expensesList');
-      if (!expenses.length) { el.textContent=''; return; }
+      if (!expenses.length) { el.innerHTML='<p class="empty-state">まだ経費がありません。<br>最初の思い出を、ひとつ追加しましょう。</p>'; return; }
       el.innerHTML = '<ul class="expense-list">' +
         expenses.map((e,i)=>({e,i})).sort((a,b)=>($('expenseOrder').value==='newest'?-1:1)*((a.e.createdAt??a.i)-(b.e.createdAt??b.i)||a.i-b.i)).map(({e,i}) =>
           `<li class="expense-item">
-             <div>${i+1}. ${escapeHtml(e.desc)} - ¥${e.amt}<br><small>支払:${escapeHtml(e.payer)}, 割り勘:${e.participants.map(n=>escapeHtml(n)+(Object.hasOwn(e.weights||{},n)?' ×'+escapeHtml(e.weights[n]):'')).join(',')}</small></div>
+             <div><div class="expense-title"><strong>${escapeHtml(e.desc)}</strong><span>¥${Number(e.amt).toLocaleString('ja-JP')}</span></div><small>${escapeHtml(e.payer)} が立替 · ${e.participants.map(n=>escapeHtml(n)+(Object.hasOwn(e.weights||{},n)?' ×'+escapeHtml(e.weights[n]):'')).join(' / ')}</small></div>
              <button class="edit-btn" data-index="${i}">編集</button>
            </li>`
         ).join('') + '</ul>';
@@ -306,6 +454,7 @@ async function loadHistory() {
         btn.addEventListener('click', ()=>{
           const i = Number(btn.dataset.index), e = expenses[i];
           editingIndex = i;
+          $('entryTitle').textContent='経費を編集';$('cancelEdit').hidden=false;
           $('splitMode').value=Object.keys(e.weights||{}).length?'weighted':'equal';
           document.getElementById('description').value = e.desc;
           document.getElementById('amount').value = e.amt;
@@ -319,6 +468,8 @@ async function loadHistory() {
     }
 
     function renderSummary() {
+      $('totalAmount').textContent='¥'+expenses.reduce((total,expense)=>total+expense.amt,0).toLocaleString('ja-JP');
+      $('groupMeta').textContent=names.length+'人 · '+expenses.length+'件の経費';
       const stats=totals(names,expenses);
       $('memberTotals').innerHTML='<table><thead><tr><th>名前</th><th>立替額</th><th>負担額</th></tr></thead><tbody>'+names.map(n=>`<tr><td>${escapeHtml(n)}</td><td>¥${stats[n].paid.toLocaleString()}</td><td>¥${stats[n].used.toLocaleString()}</td></tr>`).join('')+'</tbody></table>';
       const bal=Object.fromEntries(names.map(n=>[n,stats[n].balance]));
@@ -327,7 +478,7 @@ async function loadHistory() {
       const lines=[]; let i=0,j=0;
       while(i<debt.length && j<cred.length) {
         const d=debt[i], c=cred[j], x=Math.min(d.amt,c.amt);
-        lines.push(`${d.n} → ${c.n} : ¥${x}`);
+        lines.push(`${d.n} → ${c.n} : ¥${x.toLocaleString('ja-JP')}`);
         d.amt-=x; c.amt-=x;
         if(d.amt===0) i++; if(c.amt===0) j++;
       }
