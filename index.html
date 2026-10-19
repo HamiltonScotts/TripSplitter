@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#f5f5f7">
   <title>TripSplitter — 気持ちよく、割り勘。</title>
-  <link rel="stylesheet" href="styles.css">
-  <script type="module" src="app.js"></script>
+  <link rel="stylesheet" href="styles.css?v=20261019-controls-1">
+  <script type="module" src="app.js?v=20261019-controls-1"></script>
 </head>
 <body>
   <header class="topbar"><nav aria-label="メインナビゲーション">
     <a class="brand" href="#" aria-label="TripSplitter ホーム"><span class="brand-mark" aria-hidden="true">↗</span>TripSplitter<span class="brand-dot">.</span></a>
-    <div class="nav-actions"><button id="historyBtn" class="quiet">過去の精算 <span aria-hidden="true">⌄</span></button><div id="account"><button id="login" class="quiet">Googleでログイン</button><span id="accountName"></span><button id="logout" class="quiet" hidden>ログアウト</button></div><button id="menuBtn" class="icon-button" aria-label="グループ設定" style="display:none">···</button></div>
+    <div class="nav-actions"><button id="historyBtn" class="quiet">過去の精算 <span aria-hidden="true">⌄</span></button><div id="account"><button id="login" class="quiet">Googleでログイン</button><span id="accountName"></span><button id="logout" class="quiet" hidden>ログアウト</button></div><button id="menuBtn" class="icon-button" aria-label="メニュー">···</button></div>
   </nav></header>
   <main class="container">
     <section class="hero"><p class="eyebrow">LESS MATH. MORE MEMORIES.</p><h1 id="groupNameHeading">気持ちよく、割り勘。</h1><p id="heroDescription">一緒に過ごす時間を、もっとシンプルに。<br>旅も、食事も。お金のことは、ここでさっと。</p></section>
@@ -35,7 +35,7 @@
           <fieldset class="field"><legend>負担するメンバー</legend><div id="memberCheckboxes" class="member-buttons"></div></fieldset>
           <div class="split-panel"><div class="field"><label for="splitMode">分け方</label><select id="splitMode"><option value="equal">均等に分ける</option><option value="weighted">比率で分ける</option></select></div>
             <div class="ratio-actions" role="group" aria-label="よく使う比率（2人用）"><button type="button" data-ratio="5:5">5:5</button><button type="button" data-ratio="6:4">6:4</button><button type="button" data-ratio="7:3">7:3</button><button type="button" data-ratio="8:2">8:2</button><button type="button" id="swapRatio" aria-label="2人の比率を入れ替え">⇄</button></div>
-            <div id="weights"></div><p id="splitHint" class="split-note" role="status" aria-live="polite"></p><button type="button" id="restoreSplit" class="text-button">前回の設定を呼び出す ↗</button>
+            <div id="weights"></div><p id="splitHint" class="split-note" role="status" aria-live="polite"></p><p id="splitPreview" class="split-preview" aria-live="polite"></p><button type="button" id="restoreSplit" class="text-button">前回の設定を呼び出す ↗</button>
           </div>
           <button id="addExpense" class="primary">経費を追加</button><button id="cancelEdit" class="text-button" hidden>編集をキャンセル</button>
         </section>
@@ -49,11 +49,11 @@
     <footer>Made for shared moments. <span>TripSplitter</span></footer>
   </main>
   <dialog id="historyDialog" aria-labelledby="historyTitle"><div class="dialog-heading"><div><p class="eyebrow">YOUR SHARED MOMENTS</p><h2 id="historyTitle">グループを選ぶ</h2></div><button class="icon-button" data-close="historyDialog" aria-label="閉じる">×</button></div><div class="history-tabs" role="group" aria-label="履歴の種類"><button id="activeHistoryBtn" aria-pressed="true">過去の精算</button><button id="deletedHistoryBtn" aria-pressed="false">削除済み</button></div><label class="sr-only" for="historySearch">グループを検索</label><input id="historySearch" type="search" placeholder="グループ名で検索"><div id="history" class="history-list"></div><button id="createFromHistory" class="secondary full-width">＋ 新しいグループ</button></dialog>
-  <dialog id="menuPanel" aria-labelledby="settingsTitle"><div class="dialog-heading"><h2 id="settingsTitle">グループ設定</h2><button class="icon-button" data-close="menuPanel" aria-label="閉じる">×</button></div>
-    <div class="menu-item"><button id="addMemberBtn" class="menu-action">メンバーを追加 <span>＋</span></button><div id="addMemberForm" class="menu-input" style="display:none"><label for="newMemberName">メンバー名</label><input id="newMemberName" placeholder="名前を入力"><button id="addMemberSubmit" class="secondary">追加</button></div></div>
-    <div class="menu-item"><button id="changeGroupBtn" class="menu-action">グループ名を変更 <span>↗</span></button><div id="changeGroupForm" class="menu-input" style="display:none"><label for="newGroupName">グループ名</label><input id="newGroupName" placeholder="新しいグループ名"><button id="changeGroupSubmit" class="secondary">変更</button></div></div>
+  <dialog id="menuPanel" aria-labelledby="settingsTitle"><div class="dialog-heading"><h2 id="settingsTitle">メニュー</h2><button class="icon-button" data-close="menuPanel" aria-label="閉じる">×</button></div>
+    <div class="menu-item" data-group-only><button id="addMemberBtn" class="menu-action">メンバーを追加 <span>＋</span></button><div id="addMemberForm" class="menu-input" style="display:none"><label for="newMemberName">メンバー名</label><input id="newMemberName" placeholder="名前を入力"><button id="addMemberSubmit" class="secondary">追加</button></div></div>
+    <div class="menu-item" data-group-only><button id="changeGroupBtn" class="menu-action">グループ名を変更 <span>↗</span></button><div id="changeGroupForm" class="menu-input" style="display:none"><label for="newGroupName">グループ名</label><input id="newGroupName" placeholder="新しいグループ名"><button id="changeGroupSubmit" class="secondary">変更</button></div></div>
     <div class="menu-item"><button id="newGroupBtn" class="menu-action">新しいグループ <span>＋</span></button><div id="goToSetupForm" class="menu-input" style="display:none"><button id="goToSetupBtn" class="secondary">新しいグループを作成</button></div></div>
-    <button id="deleteGroupBtn" class="danger-text">このグループを削除</button><p class="footnote">削除すると、共有相手の画面でも表示されなくなります。削除済みの一覧から元に戻せます。</p>
+    <button data-group-only id="deleteGroupBtn" class="danger-text">このグループを削除</button><p class="footnote">削除すると、共有相手の画面でも表示されなくなります。削除済みの一覧から元に戻せます。</p>
   </dialog>
   <dialog id="deleteDialog" aria-labelledby="deleteTitle"><div class="dialog-heading"><h2 id="deleteTitle">グループを削除しますか？</h2><button class="icon-button" data-close="deleteDialog" aria-label="閉じる">×</button></div><p id="deleteDescription"></p><p class="muted">共有URLからも表示されなくなります。経費は保管され、「削除済み」から復元できます。</p><div class="dialog-actions"><button id="cancelDelete" class="secondary">キャンセル</button><button id="confirmDelete" class="danger">グループを削除</button></div></dialog>
 </body>

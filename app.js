@@ -1,13 +1,16 @@
-import { totals, sameTrip } from './calculations.mjs';
+import { totals, sameTrip } from './calculations.mjs?v=20261019-controls-1';
 const $=id=>document.getElementById(id);
 const escapeHtml=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function report(error) { console.error(error); $('status').textContent='操作を完了できませんでした。通信状態を確認して再試行してください。'+(error.message||''); }
 let busy=0;
 function updateDisabled() {
-  document.querySelectorAll('button,input,select').forEach(el=>el.disabled=busy>0);
-  if(!loadedId && tripId) document.querySelectorAll('#calculator button,#calculator input,#calculator select,#addMemberSubmit,#changeGroupSubmit').forEach(el=>el.disabled=true);
+  // Keep navigation, history search and dialog close buttons usable during I/O.
+  document.querySelectorAll('#calculator button,#calculator input,#calculator select,#setup button,#setup input,#menuPanel input,#addMemberSubmit,#changeGroupSubmit,#confirmDelete,#login,#logout,.history-open,.history-row .text-button,.history-remove').forEach(el=>el.disabled=busy>0);
+  document.querySelectorAll('[data-group-only]').forEach(el=>el.hidden=!loadedId);
+  if(!loadedId && tripId) document.querySelectorAll('#calculator button,#calculator input,#calculator select').forEach(el=>el.disabled=true);
 }
 async function run(action) {
+  if(busy){$('status').textContent='処理が完了してから、もう一度お試しください。';return;}
   busy++; updateDisabled();
   try {await action();} catch(e){report(e);} finally{busy--;updateDisabled();}
 }
@@ -33,7 +36,14 @@ function updateSplitHint() {
       ? inputs.map(input=>input.dataset.name+'：'+input.value).join(' / ')
       : members.join('・')+'で均等に負担します。')
     : '割り勘メンバーを選んでください。';
+  const amount=Number($('amount').value),weights=Object.fromEntries(inputs.map(input=>[input.dataset.name,Number(input.value)]));
+  const validWeights=inputs.every(input=>Number.isFinite(Number(input.value))&&Number(input.value)>0);
+  if(members.length&&Number.isSafeInteger(amount)&&amount>0&&validWeights){
+    const stats=totals(names,[{amt:amount,participants:members,payer:members[0],weights}]);
+    $('splitPreview').textContent=members.map(name=>name+' ¥'+stats[name].used.toLocaleString('ja-JP')).join(' / ');
+  }else $('splitPreview').textContent='';
 }
+
 function renderWeights(saved={}) {
   const old=Object.fromEntries([...$('weights').querySelectorAll('input')].map(input=>[input.dataset.name,input.value]));
   const previous=lastSplit()?.weights||{};
@@ -56,12 +66,13 @@ function restoreSplit(silent=false) {
 }
 function applyPreset(left,right) {
   let members=selectedMembers();
-  if(!members.length && names.length===2) {
+  if(members.length!==2 && names.length===2) {
     document.querySelectorAll('.member-btn').forEach(button=>button.classList.add('active'));members=selectedMembers();
   }
-  if(members.length!==2) {$('splitHint').textContent='このボタンは2人用です。割り勘メンバーを2人選んでください。';return;}
+  if(members.length!==2) {const message='この比率ボタンは2人用です。負担するメンバーを2人選んでください。';$('splitHint').textContent=message;$('status').textContent=message;return;}
   $('splitMode').value='weighted';
   renderWeights(Object.fromEntries([[members[0],left],[members[1],right]]));
+  $('status').textContent=members[0]+' '+left+'：'+members[1]+' '+right+' を適用しました。';
 }
 function swapRatio() {
   const inputs=[...$('weights').querySelectorAll('input')];
@@ -94,6 +105,7 @@ function renderHistory() {
     $('history').append(item);
   }
   if(!rows.length) {const empty=document.createElement('p');empty.className='empty-state';empty.textContent=search?'一致するグループがありません。':historyView==='deleted'?'削除したグループはありません。':'まだ精算履歴がありません。​共有URLを開くと、ここから選べるようになります。';$('history').append(empty);}
+  updateDisabled();
 }
 async function persistHistory(row) {
   const user=auth.currentUser;
@@ -122,16 +134,30 @@ async function forgetHistory(id) {
   cloudHistory=cloudHistory.filter(row=>row.id!==id);renderHistory();
   $('status').textContent='自分の履歴から外しました。共有URLから再び開けます。';
 }
-function closeDialog(id) {if($(id).open)$(id).close();}
+function openDialog(id) {
+  const dialog=$(id);if(dialog.open)return;
+  dialog.returnFocus=document.activeElement;
+  if(typeof dialog.showModal==='function')dialog.showModal();
+  else {dialog.setAttribute('open','');dialog.dataset.fallback='true';document.body.classList.add('has-fallback-modal');dialog.querySelector('button,input')?.focus();}
+}
+function closeDialog(id) {
+  const dialog=$(id);if(!dialog.open)return;
+  if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');
+  delete dialog.dataset.fallback;
+  if(!document.querySelector('dialog[data-fallback]'))document.body.classList.remove('has-fallback-modal');
+  dialog.returnFocus?.focus();
+}
 function openTrip(id) {
+  if(busy){$('status').textContent='処理が完了してからグループを切り替えてください。';return;}
   closeDialog('historyDialog');closeDialog('menuPanel');
   run(async()=>{tripId=id;history.replaceState(null,'','#'+id);await loadTrip(id);});
 }
-function showSetup() {
+function showSetup(force=false) {
+  if(busy&&force!==true){$('status').textContent='処理が完了してから新しいグループを作成してください。';return;}
   tripId=null;loadedId=null;confirmed=null;names=[];expenses=[];editingIndex=null;
   history.replaceState(null,'',location.pathname+location.search);
   ['historyDialog','menuPanel','deleteDialog'].forEach(closeDialog);
-  $('calculator').style.display='none';$('setup').style.display='block';$('menuBtn').style.display='none';
+  $('calculator').style.display='none';$('setup').style.display='block';$('menuBtn').style.display='block';
   $('groupNameHeading').textContent='気持ちよく、割り勘。';
   $('heroDescription').innerHTML='一緒に過ごす時間を、もっとシンプルに。<br>旅も、食事も。お金のことは、ここでさっと。';
   $('status').textContent='';updateDisabled();
@@ -139,7 +165,7 @@ function showSetup() {
 function requestDelete(row) {
   pendingDelete={id:row.id,groupName:row.groupName};
   closeDialog('menuPanel');closeDialog('historyDialog');
-  $('deleteDescription').textContent='「'+row.groupName+'」を削除します。';$('deleteDialog').showModal();
+  $('deleteDescription').textContent='「'+row.groupName+'」を削除します。';openDialog('deleteDialog');
 }
 async function deleteGroup() {
   if(!pendingDelete)return;
@@ -153,7 +179,7 @@ async function deleteGroup() {
   });
   // A tombstone keeps all expenses recoverable; shared links respect it too.
   try {localStorage.removeItem('trip:'+row.id);}catch{}
-  if(tripId===row.id)showSetup();else closeDialog('deleteDialog');
+  if(tripId===row.id)showSetup(true);else closeDialog('deleteDialog');
   pendingDelete=null;
   try {await persistHistory({...row,visitedAt:Date.now(),deletedAt});}
   catch(error){report(error);return;}
@@ -231,7 +257,7 @@ async function restoreGroup(row) {
       document.querySelectorAll('[data-ratio]').forEach(button=>button.onclick=()=>applyPreset(...button.dataset.ratio.split(':').map(Number)));
       $('swapRatio').onclick=swapRatio;
       $('expenseOrder').onchange=renderExpenses;
-      $('historyBtn').onclick=()=>{renderHistory();$('historyDialog').showModal();};
+      $('historyBtn').onclick=()=>{renderHistory();openDialog('historyDialog');};
       $('activeHistoryBtn').onclick=()=>{historyView='active';renderHistory();};
       $('deletedHistoryBtn').onclick=()=>{historyView='deleted';renderHistory();};
       $('historySearch').oninput=renderHistory;
@@ -242,6 +268,17 @@ async function restoreGroup(row) {
       $('cancelDelete').onclick=()=>{pendingDelete=null;closeDialog('deleteDialog');};
       $('shareBtn').onclick=()=>run(async()=>{await navigator.clipboard.writeText(location.href);$('status').textContent='共有リンクをコピーしました。';});
       $('cancelEdit').onclick=()=>{editingIndex=null;$('description').value='';$('amount').value='';$('addExpense').textContent='経費を追加';$('entryTitle').textContent='経費を追加';$('cancelEdit').hidden=true;restoreSplit(true);};
+      $('amount').addEventListener('input',updateSplitHint);
+      document.addEventListener('keydown',event=>{
+        const dialog=document.querySelector('dialog[data-fallback][open]');if(!dialog)return;
+        if(event.key==='Escape'){event.preventDefault();closeDialog(dialog.id);}
+        if(event.key==='Tab'){
+          const focusable=[...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href]')].filter(el=>!el.hidden);
+          const first=focusable[0],last=focusable[focusable.length-1];
+          if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+          else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+        }
+      });
       createNameFields();
       window.addEventListener('hashchange',()=>{
         if(busy){location.reload();return;}
@@ -255,7 +292,7 @@ async function restoreGroup(row) {
     }
 
     function toggleMenu() {
-      if($('menuPanel').open)closeDialog('menuPanel');else $('menuPanel').showModal();
+      if($('menuPanel').open)closeDialog('menuPanel');else openDialog('menuPanel');
     }
 
     function showForm(id) {
@@ -352,7 +389,7 @@ async function restoreGroup(row) {
       if(!snapshot.exists()) throw new Error('精算が見つかりません。URLを確認してください。');
       const data=snapshot.data();
       if(data.deletedAt) {
-        showSetup();
+        showSetup(true);
         try {localStorage.removeItem('trip:'+id);}catch{}
         await persistHistory({id,groupName:data.groupName,visitedAt:Date.now(),deletedAt:data.deletedAt});
         $('status').textContent='このグループは削除されています。「過去の精算」→「削除済み」から復元できます。';return;
@@ -434,6 +471,7 @@ async function restoreGroup(row) {
       renderSummary();
       document.getElementById('description').value = '';
       document.getElementById('amount').value = '';
+      updateSplitHint();
     }
 
     function renderExpenses() {
