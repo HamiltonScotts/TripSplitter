@@ -72,243 +72,18 @@
     .summary-item { border:1px solid #ddd; border-radius:4px; padding:.75rem; margin-bottom:.5rem; background:#fafafa; }
     /* 共有案内 */
     .share-instruction { text-align:center; padding:.5rem; background:#eef; margin-bottom:1rem; font-size:1rem; }
+    #account { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:1rem; }
+    #status { color:#43536a; min-height:1.5em; }
+    #history button { display:block; width:100%; padding:.75rem; text-align:left; margin:.4rem 0; }
+    #weights label { display:flex; align-items:center; gap:1rem; margin-top:.5rem; }
+    #weights input { width:7rem; }
+    table { width:100%; border-collapse:collapse; } th,td { padding:.6rem .2rem; text-align:right; border-bottom:1px solid #ddd; } th:first-child,td:first-child { text-align:left; }
+    button:disabled { opacity:.5; } .expense-item { gap:.5rem; overflow-wrap:anywhere; }
   </style>
-  <script type="module">
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js';
-    import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
-    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js';
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyAHwWw5a1Ne6BEumceByfhARsP93qOigUk",
-      authDomain: "tripsplitterfirebase.firebaseapp.com",
-      projectId: "tripsplitterfirebase",
-      storageBucket: "tripsplitterfirebase.appspot.com",
-      messagingSenderId: "154664469902",
-      appId: "1:154664469902:web:10107c5674219503c110df",
-      measurementId: "G-3XSDN3GH1B"
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const auth = getAuth(app);
-    signInAnonymously(auth).catch(console.error);
-    onAuthStateChanged(auth, user => user && console.log('UID:', user.uid));
-
-    const generateId = () => Math.random().toString(36).substr(2,8);
-    let tripId = null, names = [], expenses = [], groupName = '', editingIndex = null;
-
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('menuBtn').addEventListener('click', toggleMenu);
-      document.getElementById('addMemberBtn').addEventListener('click', () => showForm('addMemberForm'));
-      document.getElementById('addMemberSubmit').addEventListener('click', addMember);
-      document.getElementById('changeGroupBtn').addEventListener('click', () => showForm('changeGroupForm'));
-      document.getElementById('changeGroupSubmit').addEventListener('click', changeGroup);
-      document.getElementById('newGroupBtn').addEventListener('click', () => showForm('goToSetupForm'));
-      document.getElementById('goToSetupBtn').addEventListener('click', () => {
-        const url = `${location.origin}${location.pathname}`;
-        window.open(url, '_blank');
-        toggleMenu();
-      });
-      document.getElementById('numParticipants').addEventListener('change', createNameFields);
-      document.getElementById('initTrip').addEventListener('click', initTrip);
-      document.getElementById('addExpense').addEventListener('click', addOrUpdateExpense);
-      const hash = location.hash.slice(1);
-      if (hash) { tripId = hash; loadTrip(hash); }
-    });
-
-    function toggleMenu() {
-      const panel = document.getElementById('menuPanel');
-      const btn = document.getElementById('menuBtn');
-      const isOpen = panel.classList.toggle('open');
-      btn.textContent = isOpen ? '✕' : '☰';
-    }
-
-    function showForm(id) {
-      ['addMemberForm','changeGroupForm','goToSetupForm'].forEach(mid => {
-        document.getElementById(mid).style.display = 'none';
-      });
-      document.getElementById(id).style.display = 'block';
-    }
-
-    async function addMember() {
-      const input = document.getElementById('newMemberName');
-      const name = input.value.trim();
-      if (!name) return;
-      names.push(name);
-      await saveData();
-      refreshMembers();
-      resetButton('addMemberSubmit');
-      input.value = '';
-    }
-
-    async function changeGroup() {
-      const input = document.getElementById('newGroupName');
-      const name = input.value.trim();
-      if (!name) return;
-      groupName = name;
-      document.getElementById('groupNameHeading').textContent = groupName;
-      await saveData();
-      resetButton('changeGroupSubmit');
-      input.value = '';
-    }
-
-    function resetButton(id) {
-      const btn = document.getElementById(id);
-      const orig = btn.textContent;
-      btn.textContent = orig.includes('完了') ? orig : `${orig}完了`;
-      setTimeout(() => btn.textContent = orig, 2000);
-    }
-
-    function createNameFields() {
-      const n = +document.getElementById('numParticipants').value;
-      const container = document.getElementById('nameFields');
-      container.innerHTML = '';
-      for (let i = 0; i < n; i++) {
-        const div = document.createElement('div');
-        div.className = 'field';
-        div.innerHTML = `<label>参加者${i+1}</label><input class=\"participantName\" placeholder=\"名前を入力\"/>`;
-        container.appendChild(div);
-      }
-    }
-
-    async function initTrip() {
-      names = Array.from(document.querySelectorAll('.participantName'))
-        .map(el => el.value.trim())
-        .filter(v => v);
-      groupName = document.getElementById('groupNameInput').value.trim() || '旅行割り勘';
-      if (names.length < 2) {
-        alert('名前を2人以上入力してください');
-        return;
-      }
-      tripId = generateId();
-      await saveData();
-      enterCalculator();
-    }
-
-    function enterCalculator() {
-      document.getElementById('menuBtn').style.display = 'block';
-      document.getElementById('setup').style.display = 'none';
-      document.getElementById('calculator').style.display = 'block';
-      document.getElementById('groupNameHeading').textContent = groupName;
-      refreshMembers();
-      renderExpenses();
-      renderSummary();
-    }
-
-    async function loadTrip(id) {
-      const snapshot = await getDoc(doc(db,'trips',id));
-      if (!snapshot.exists()) return;
-      const data = snapshot.data();
-      names = data.names;
-      expenses = data.expenses;
-      groupName = data.groupName;
-      enterCalculator();
-    }
-
-    async function saveData() {
-      await setDoc(doc(db,'trips',tripId), { names, expenses, groupName });
-      location.hash = tripId;
-    }
-
-    function refreshMembers() {
-      const box = document.getElementById('memberCheckboxes');
-      box.innerHTML = '';
-      names.forEach(name => {
-        const btn = document.createElement('button');
-        btn.className = 'member-btn';
-        btn.textContent = name;
-        btn.addEventListener('click', () => btn.classList.toggle('active'));
-        box.appendChild(btn);
-      });
-      const sel = document.getElementById('payerSelect');
-      sel.innerHTML = '<option value="">--選択--</option>';
-      names.forEach(name => {
-        const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
-        sel.appendChild(opt);
-      });
-    }
-
-    async function addOrUpdateExpense() {
-      const desc = document.getElementById('description').value.trim();
-      const amt  = parseFloat(document.getElementById('amount').value);
-      const parts = Array.from(document.querySelectorAll('.member-btn.active'))
-        .map(btn => btn.textContent);
-      const payer = document.getElementById('payerSelect').value;
-      if (!desc || isNaN(amt) || amt<=0 || parts.length===0 || !payer) {
-        alert('入力項目をすべて埋めてください');
-        return;
-      }
-      if (editingIndex!==null) {
-        expenses[editingIndex] = { desc, amt, participants: parts, payer };
-        editingIndex = null;
-        document.getElementById('addExpense').textContent = '経費を追加';
-      } else {
-        expenses.push({ desc, amt, participants: parts, payer });
-      }
-      await saveData();
-      renderExpenses();
-      renderSummary();
-      document.getElementById('description').value = '';
-      document.getElementById('amount').value = '';
-    }
-
-    function renderExpenses() {
-      const el = document.getElementById('expensesList');
-      if (!expenses.length) { el.textContent=''; return; }
-      el.innerHTML = '<ul class="expense-list">' +
-        expenses.map((e,i) =>
-          `<li class="expense-item">
-             <div>${i+1}. ${e.desc} - ¥${e.amt}<br><small>支払:${e.payer}, 割り勘:${e.participants.join(',')}</small></div>
-             <button class="edit-btn" data-index="${i}">編集</button>
-           </li>`
-        ).join('') + '</ul>';
-      bindEditButtons();
-    }
-
-    function bindEditButtons() {
-      document.querySelectorAll('.edit-btn').forEach(btn =>
-        btn.addEventListener('click', ()=>{
-          const i = Number(btn.dataset.index), e = expenses[i];
-          editingIndex = i;
-          document.getElementById('description').value = e.desc;
-          document.getElementById('amount').value = e.amt;
-          document.querySelectorAll('.member-btn').forEach(b =>
-            b.classList.toggle('active', e.participants.includes(b.textContent)));
-          document.getElementById('payerSelect').value = e.payer;
-          document.getElementById('addExpense').textContent = '更新';
-        })
-      );
-    }
-
-    function renderSummary() {
-      const bal = {}; names.forEach(n => bal[n]=0);
-      expenses.forEach(e => {
-        const share = Math.floor(e.amt/e.participants.length);
-        e.participants.forEach(p => {
-          if(p!==e.payer){ bal[p]-=share; bal[e.payer]+=share; }
-        });
-      });
-      const debt = Object.entries(bal).filter(([,v])=>v<0).map(([n,v])=>({n,amt:-v}));
-      const cred = Object.entries(bal).filter(([,v])=>v>0).map(([n,v])=>({n,amt:v}));
-      const lines=[]; let i=0,j=0;
-      while(i<debt.length && j<cred.length) {
-        const d=debt[i], c=cred[j], x=Math.min(d.amt,c.amt);
-        lines.push(`${d.n} → ${c.n} : ¥${x}`);
-        d.amt-=x; c.amt-=x;
-        if(d.amt===0) i++; if(c.amt===0) j++;
-      }
-      const summaryDiv = document.getElementById('summary');
-      if(!lines.length) {
-        summaryDiv.innerHTML = '<div class="summary-item"><div>精算不要です</div></div>';
-        return;
-      }
-      summaryDiv.innerHTML = '<ul class="summary-list">' +
-        lines.map(l => `<li class="summary-item"><div>${l}</div></li>`).join('') +
-      '</ul>';
-    }
-  </script>
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-  <button id="menuBtn">☰</button>
+  <button id="menuBtn" aria-label="メニュー">☰</button>
   <div id="menuPanel">
     <div class="menu-item">
       <button id="addMemberBtn" class="menu-action">メンバーを追加</button>
@@ -334,9 +109,12 @@
   
   <h1 id="groupNameHeading">旅行割り勘計算機</h1>
   <div class="container">
+    <div id="account"><button id="login">Googleでログイン</button><button id="logout" hidden>ログアウト</button><span id="accountName"></span></div>
+    <p id="status" role="status" aria-live="polite"></p>
+    <details open><summary>過去の精算</summary><div id="history"></div></details>
     <div id="setup">
       <div class="field"><label for="groupNameInput">グループ名</label><input id="groupNameInput" type="text" placeholder="グループ名を入力" /></div>
-      <div class="field"><label for="numParticipants">参加者人数</label><input id="numParticipants" type="number" min="2" placeholder="2以上" /></div>
+      <div class="field"><label for="numParticipants">参加者人数</label><input id="numParticipants" type="number" min="2" max="100" placeholder="2以上" /></div>
       <div id="nameFields"></div>
       <button id="initTrip" class="primary">旅行を開始</button>
     </div>
@@ -345,10 +123,13 @@
       <div class="field"><label for="description">名目</label><input id="description" type="text" placeholder="例: 昼食代" /></div>
       <div class="field"><label for="amount">金額 (¥)</label><input id="amount" type="number" placeholder="金額を入力" /></div>
       <div class="field"><label>割り勘メンバー</label><div id="memberCheckboxes" class="member-buttons"></div></div>
+      <div class="field"><label for="splitMode">負担方法</label><select id="splitMode"><option value="equal">均等</option><option value="weighted">比率で傾斜をつける</option></select><p>比率を2と1にすると、負担額が2対1になります。</p><div id="weights"></div></div>
       <div class="field"><label for="payerSelect">支払者</label><select id="payerSelect"></select></div>
       <button id="addExpense" class="primary">経費を追加</button>
       <h2 class="list-title">経費一覧</h2>
+      <label for="expenseOrder">表示順</label><select id="expenseOrder"><option value="newest">新しい順</option><option value="oldest">古い順</option></select>
       <div id="expensesList"></div>
+      <h2 class="list-title">メンバーごとの支出</h2><div id="memberTotals"></div>
       <h2 class="list-title">精算サマリー</h2>
       <div id="summary"></div>
     </div>
